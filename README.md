@@ -70,6 +70,42 @@ Sometimes you want to overwrite a table on every load. This can be achieved by e
 
 If you want to merge data into a table, you can set `merge: true` which will use the `MERGE` statement to upsert data. This supports pattern matching like the above setting. It requires `denormalized: true` takes precedence over `overwrite`. It will only work on tables which have a primary key as defined by the `key_properties` sent by the tap. There is a supporting config option called `dedupe_before_upsert` which will dedupe the data before upserting. This is useful if you are replicating data which has a primary key but is not unique. This occurs when you are replicating data from a source which has a primary key but does not enforce it. This is the case for MongoDB. It can also happen when moving data from a data lake in S3/GCS to a database. This is not the default behavior because it is slower and requires more resources.
 
+### Table Partitioning
+
+By default, all tables are partitioned by month using the `_sdc_batched_at` field. You can customize partitioning behavior using the `partition` configuration object:
+
+**Configuration structure:**
+```json
+{
+  "partition": {
+    "default": {
+      "enabled": true,
+      "granularity": "month",
+      "field": "_sdc_batched_at",
+      "expiration_days": null
+    },
+    "streams": {
+      "users": {
+        "granularity": "day",
+        "field": "created_at",
+        "expiration_days": 365
+      },
+      "events_*": {
+        "granularity": "hour",
+        "field": "event_timestamp"
+      },
+      "staging_*": {
+        "enabled": false
+      }
+    }
+  }
+}
+```
+
+**Default settings** under `default` apply to all streams unless overridden.
+
+**Per-stream overrides** under `streams` allow customization for specific tables using fnmatch patterns (`*`, `?`, `[seq]`). Stream-specific settings override the default configuration.
+
 ## Features ✨
 
 - Autoscaling self-healing worker pool using either threads (default) or multiprocessing, configurable by the user for the _fastest_ possible data ingestion. Particularly when leveraging colocated compute in GCP.
@@ -117,6 +153,22 @@ First a valid example to give context to the below including a nested key exampl
     "batch_size": 500,
     "column_name_transforms": {
       "snake_case": true
+    },
+    "partition": {
+      "default": {
+        "enabled": true,
+        "granularity": "month",
+        "field": "_sdc_batched_at"
+      },
+      "streams": {
+        "users": {
+          "granularity": "day",
+          "field": "created_at"
+        },
+        "staging_*": {
+          "enabled": false
+        }
+      }
     }
 }
 ```
@@ -140,8 +192,11 @@ First a valid example to give context to the below including a nested key exampl
 | dedupe_before_upsert                               |  False   |       False       | This option is only used if `upsert` is enabled for a stream. The selection criteria for the stream's candidacy is the same as upsert. If the stream is marked for deduping before upsert, we will create a _session scoped temporary table during the merge transaction to dedupe the ingested records. This is useful for streams that are not unique on the key properties during an ingest but are unique in the source system. Data lake ingestion is often a good example of this where the same unique record may exist in the lake at different points in time from different extracts. |
 | bucket                                             |  False   |       None        | The GCS bucket to use for staging data. Only used if method is gcs_stage. |
 | cluster_on_key_properties                          |  False   |         0         | Determines whether to cluster on the key properties from the tap. Defaults to false. When false, clustering will be based on _sdc_batched_at instead. |
-| partition_granularity                              |  False   |      "month"      | Indicates the granularity of the created table partitioning scheme which is based on `_sdc_batched_at`. By default the granularity is monthly. Must be one of: "hour", "day", "month", "year". |
-| partition_expiration_days                          |  False   |       None        | If set for date- or timestamp-type partitions, the partition will expire that many days after the date it represents. |
+| partition.default.enabled                          |  False   |        True       | Enable/disable table partitioning by default. Defaults to true. |
+| partition.default.granularity                      |  False   |      "month"      | Default partitioning granularity. Must be one of: "hour", "day", "month", "year". Defaults to month. |
+| partition.default.field                            |  False   | "_sdc_batched_at" | Default field to use for partitioning. Defaults to `_sdc_batched_at`. |
+| partition.default.expiration_days                  |  False   |       None        | Default number of days after which partitions will expire and be deleted. |
+| partition.streams                                  |  False   |       None        | Per-stream partition overrides. Keys are stream names (fnmatch patterns). Values override default partition settings. Example: `{"users": {"granularity": "day", "field": "created_at"}, "staging_*": {"enabled": false}}` |
 | column_name_transforms.lower                       |  False   |       None        | Lowercase column names. |
 | column_name_transforms.quote                       |  False   |       None        | Quote column names in any generated DDL. |
 | column_name_transforms.add_underscore_when_invalid |  False   |       None        | Add an underscore to the column name if it starts with a digit to make it valid. |

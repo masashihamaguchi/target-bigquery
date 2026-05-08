@@ -165,26 +165,64 @@ class TargetBigQuery(Target):
             description="The GCS bucket to use for staging data. Only used if method is gcs_stage.",
         ),
         th.Property(
-            "partition_granularity",
-            th.CustomType(
-                {
-                    "type": "string",
-                    "enum": [
-                        "year",
-                        "month",
-                        "day",
-                        "hour",
-                    ],
-                }
+            "partition",
+            th.ObjectType(
+                th.Property(
+                    "default",
+                    th.ObjectType(
+                        th.Property(
+                            "enabled",
+                            th.BooleanType,
+                            default=True,
+                            description="Enable/disable table partitioning. Defaults to true.",
+                        ),
+                        th.Property(
+                            "granularity",
+                            th.CustomType(
+                                {
+                                    "type": "string",
+                                    "enum": [
+                                        "year",
+                                        "month",
+                                        "day",
+                                        "hour",
+                                    ],
+                                }
+                            ),
+                            default="month",
+                            description="The granularity of the partitioning strategy. Defaults to month.",
+                        ),
+                        th.Property(
+                            "field",
+                            th.StringType,
+                            default="_sdc_batched_at",
+                            description="The field to use for partitioning. Defaults to _sdc_batched_at.",
+                        ),
+                        th.Property(
+                            "expiration_days",
+                            th.IntegerType,
+                            required=False,
+                            description="Number of days after which partitions will expire and be deleted.",
+                        ),
+                    ),
+                    required=False,
+                    description="Default partition configuration applied to all streams.",
+                ),
+                th.Property(
+                    "streams",
+                    th.ObjectType(),
+                    required=False,
+                    description=(
+                        "Per-stream partition configuration overrides. Keys are stream names (fnmatch patterns supported). "
+                        "Values are objects that can override 'enabled', 'granularity', 'field', and/or 'expiration_days'."
+                    ),
+                ),
             ),
-            default="month",
-            description="The granularity of the partitioning strategy. Defaults to month.",
-        ),
-        th.Property(
-            "partition_expiration_days",
-            th.IntegerType,
             required=False,
-            description="If set for date- or timestamp-type partitions, the partition will expire that many days after the date it represents.",
+            description=(
+                "Table partitioning configuration. Contains default settings under 'default' and per-stream overrides under 'streams'. "
+                "Example: {\"default\": {\"enabled\": true, \"granularity\": \"month\"}, \"streams\": {\"users\": {\"granularity\": \"day\", \"field\": \"created_at\"}}}"
+            ),
         ),
         th.Property(
             "cluster_on_key_properties",
@@ -587,10 +625,10 @@ class TargetBigQuery(Target):
         self._reset_max_record_age()
 
     def _validate_config(
-        self, raise_errors: bool = True, warnings_as_errors: bool = False
-    ) -> Tuple[List[str], List[str]]:
+        self, *, raise_errors: bool = True
+    ) -> list[str]:
         """Don't throw on config validation since our JSON schema doesn't seem to play well with meltano for whatever reason"""
-        return super()._validate_config(False, False)
+        return super()._validate_config(raise_errors=False)
 
 
 if __name__ == "__main__":

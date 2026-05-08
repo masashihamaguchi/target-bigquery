@@ -227,9 +227,7 @@ class BigQueryTable:
                     strategy=self.ingestion_strategy,
                 )
             ),
-            "time_partitioning": TimePartitioning(
-                type_=TimePartitioningType.MONTH, field="_sdc_batched_at"
-            ),
+            "time_partitioning": None,
         }
 
     @staticmethod
@@ -422,6 +420,35 @@ class BaseBigQuerySink(BatchSink):
             dedupe_before_upsert_candidate = True
         return dedupe_before_upsert_candidate
 
+    def _get_partition_config_for_stream(self) -> Dict[str, Any]:
+        """Get partition configuration for this stream, applying overrides if any match."""
+        # Get partition config object
+        partition_config = self.config.get("partition", {})
+        default_config = partition_config.get("default", {})
+
+        # Start with default settings
+        config = {
+            "enabled": default_config.get("enabled", True),
+            "granularity": default_config.get("granularity", "month"),
+            "field": default_config.get("field", "_sdc_batched_at"),
+            "expiration_days": default_config.get("expiration_days"),
+        }
+
+        # Apply stream-specific overrides if any match this stream
+        stream_overrides = partition_config.get("streams", {})
+        for pattern, override_config in stream_overrides.items():
+            if fnmatch(self.stream_name, pattern):
+                # Merge override config into the base config
+                if "enabled" in override_config:
+                    config["enabled"] = override_config["enabled"]
+                if "granularity" in override_config:
+                    config["granularity"] = override_config["granularity"]
+                if "field" in override_config:
+                    config["field"] = override_config["field"]
+                if "expiration_days" in override_config:
+                    config["expiration_days"] = override_config["expiration_days"]
+        return config
+
     @property
     def table_name(self) -> str:
         """Returns the table name."""
@@ -476,13 +503,18 @@ class BaseBigQuerySink(BatchSink):
         # Table opts
         if key_properties and self.config.get("cluster_on_key_properties", False):
             kwargs["table"]["clustering_fields"] = tuple(key_properties[:4])
-        partition_grain: Optional[str] = self.config.get("partition_granularity")
-        partition_expiration_days: Optional[int] = self.config.get("partition_expiration_days")
-        expiration_ms: Optional[int] = partition_expiration_days * 24 * 60 * 60 * 1000 if partition_expiration_days is not None else None
-        if partition_grain:
+
+        # Get partition config for this stream (with overrides applied)
+        partition_config = self._get_partition_config_for_stream()
+        if partition_config["enabled"]:
+            expiration_ms: Optional[int] = (
+                partition_config["expiration_days"] * 24 * 60 * 60 * 1000
+                if partition_config["expiration_days"] is not None
+                else None
+            )
             kwargs["table"]["time_partitioning"] = TimePartitioning(
-                type_=PARTITION_STRATEGY[partition_grain.upper()],
-                field="_sdc_batched_at",
+                type_=PARTITION_STRATEGY[partition_config["granularity"].upper()],
+                field=partition_config["field"],
                 expiration_ms=expiration_ms,
             )
         # Dataset opts
