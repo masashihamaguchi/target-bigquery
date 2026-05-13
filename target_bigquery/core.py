@@ -633,14 +633,47 @@ class Denormalized:
         reraise=True,
     )
     def update_schema(self: BaseBigQuerySink) -> None:  # type: ignore
-        """Update the target schema."""
+        """Update the target schema based on schema_update_mode.
+
+        - append (default): adds new columns only, existing columns are not modified.
+        - update: adds new columns and updates metadata of existing columns (e.g. description),
+                  but does not remove columns absent from the source.
+        - replace: fully replaces the schema with the expected schema, which may remove columns.
+        """
+        mode = self.config.get("schema_update_mode", "append")
         table = self.table.as_table()
         current_schema = table.schema[:]
-        mut_schema = table.schema[:]
-        for expected_field in self.table.get_resolved_schema(self.apply_transforms):
-            if not any(field.name == expected_field.name for field in current_schema):
-                mut_schema.append(expected_field)
-        if len(mut_schema) > len(current_schema):
+        current_schema_map = {field.name: field for field in current_schema}
+        expected_schema = self.table.get_resolved_schema(self.apply_transforms)
+        schema_changed = False
+
+        if mode == "append":
+            mut_schema = current_schema[:]
+            for expected_field in expected_schema:
+                if expected_field.name not in current_schema_map:
+                    mut_schema.append(expected_field)
+                    schema_changed = True
+
+        elif mode == "update":
+            mut_schema = []
+            expected_schema_map = {field.name: field for field in expected_schema}
+            for existing_field in current_schema:
+                expected = expected_schema_map.get(existing_field.name)
+                if expected is not None and existing_field != expected:
+                    mut_schema.append(expected)
+                    schema_changed = True
+                else:
+                    mut_schema.append(existing_field)
+            for expected_field in expected_schema:
+                if expected_field.name not in current_schema_map:
+                    mut_schema.append(expected_field)
+                    schema_changed = True
+
+        elif mode == "replace":
+            mut_schema = list(expected_schema)
+            schema_changed = current_schema != mut_schema
+
+        if schema_changed:
             table.schema = mut_schema
             self.client.update_table(
                 table,

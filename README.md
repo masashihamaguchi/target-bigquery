@@ -58,6 +58,12 @@ Denormalized=False (default) means we load all data into a single `JSON` column.
 
 Denormalized=True means we unpack the data into a schema which is derived from the tap schema. It does _not_ mean we will flatten the data. There is a separate option for flattening. We will convert arrays to repeated fields and records to structs. All top level keys will end up as columns which is was you might expect from more typical targets.
 
+#### Column Descriptions
+
+When using `denormalized: true`, if the Singer schema includes a `description` field in a property definition, it will be passed through to the BigQuery `SchemaField` description. This allows column-level documentation from the source system (e.g. MySQL column comments via tap-mysql) to be reflected in the BigQuery schema automatically.
+
+To update descriptions on existing columns (not just newly added ones), set `schema_update_mode: "update"`.
+
 #### Resolver Versions
 
 There are 2 resolver versions. The config option `schema_resolver_version` lets you select which version you want to use. This versioning exists because we want to support evolving how we resolve schemas whilst not creating breaking changes for long-time users dependent on how a schema is resolved. The default is `1` which behaves very similarly to existing flavors of `target-bigquery`. It works well enough but has plenty of edge cases where it simply cannot resolve valid jsonschemas to a bq schema. The new version `2` is much more robust and will resolve most, if not all schemas due to it falling back to `JSON` when in doubt. You must opt-in to this version by setting `schema_resolver_version: 2` in your config.
@@ -206,6 +212,7 @@ First a valid example to give context to the below including a nested key exampl
 | options.process_pool                               |  False   |       None        | By default we use an autoscaling threadpool to write to BigQuery. If set to true, we will use a process pool. |
 | options.max_workers                                |  False   |       None        | By default, each sink type has a preconfigured max worker pool limit. This sets an override for maximum number of workers in the pool. |
 | schema_resolver_version                            |  False   |       1           | The version of the schema resolver to use. Defaults to 1. Version 2 uses JSON as a fallback during denormalization. This only has an effect if denormalized=true |
+| schema_update_mode                                 |  False   |     "append"      | Controls how the target table schema is updated when the source schema changes. `append`: only adds new columns, existing columns are not modified (default). `update`: adds new columns and updates metadata (e.g. description) of existing columns, but does not remove columns. `replace`: fully replaces the table schema with the source schema, which may remove columns no longer present in the source. |
 | stream_maps                                        |  False   |       None        | Config object for stream maps capability. For more information check out [Stream Maps](https://sdk.meltano.com/en/latest/stream_maps.html). |
 | stream_map_config                                  |  False   |       None        | User-defined config values to be used within map expressions. |
 | flattening_enabled                                 |  False   |       None        | 'True' to enable schema flattening and automatically expand nested properties. |

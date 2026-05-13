@@ -388,6 +388,19 @@ class TargetBigQuery(Target):
             ),
             allowed_values=[1, 2],
         ),
+        th.Property(
+            "schema_update_mode",
+            th.CustomType({"type": "string", "enum": ["append", "update", "replace"]}),
+            default="append",
+            description=(
+                "Controls how the target table schema is updated when the source schema changes."
+                " 'append' (default): only adds new columns, existing columns are not modified."
+                " 'update': adds new columns and updates metadata (e.g. description) of existing"
+                " columns, but does not remove columns."
+                " 'replace': fully replaces the table schema with the source schema, which may"
+                " remove columns no longer present in the source."
+            ),
+        ),
     ).to_dict()
 
     def __init__(self, *args, **kwargs) -> None:
